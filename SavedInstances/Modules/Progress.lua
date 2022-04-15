@@ -276,6 +276,42 @@ local function CovenantAssaultReset(toon, index)
   t.Progress[index].unlocked = unlocked
 end
 
+-- Daily Rares (index 8)
+
+local function RareMobUpdate(index)
+  SI.db.Toons[SI.thisToon].Progress[index] = wipe(SI.db.Toons[SI.thisToon].Progress[index] or {})
+  local data = {
+    unlocked = true,
+    isComplete = IsQuestFlaggedCompleted(Module.TrackedQuest[index].quest),
+  }
+  SI.db.Toons[SI.thisToon].Progress[index] = data
+
+end
+
+local function RareMobShow(toon, index)
+  local t = SI.db.Toons[toon]
+  if not t or not t.Progress or not t.Progress[index] then return end
+  local data = t.Progress[index]
+  local text
+  if data.isComplete then
+    text = "\124T" .. READY_CHECK_READY_TEXTURE .. ":0|t"
+  else
+    text = ""
+  end
+  return text
+end
+
+local function RareMobReset(toon, index)
+  local t = SI.db.Toons[toon]
+  if not t or not t.Progress or not t.Progress[index] then return end
+
+  local prev = t.Progress[index]
+  t.Progress[index] = {
+    unlocked = prev.unlocked,
+    isComplete = false,
+  }
+end
+
 Module.TrackedQuest = {
   -- Conquest
   {
@@ -414,6 +450,144 @@ Module.TrackedQuest = {
     quest = 62638,
     relatedQuest = {62638},
   },
+  -- Rares
+  -- Rares
+--     {
+--       name = "Steel Singer Freza",
+--       quest = 55854,
+--       daily = true,
+--       func = RareMobUpdate,
+--       showFunc = RareMobShow,
+--       resetFunc = RareMobReset,
+--     },
+--     {
+--   	name = "Famu",
+--   	quest = 59869,
+--   	daily = true,
+--   	func = RareMobUpdate,
+--   	showFunc = RareMobShow,
+--       resetFunc = RareMobReset,
+--     },
+  {
+  	name = "Nerissa (Gorespine)",
+  	quest = 58851,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+--     {
+--   	name = "Warbringer",
+--   	quest = 58889,
+--   	daily = true,
+--   	func = RareMobUpdate,
+--   	showFunc = RareMobShow,
+--       resetFunc = RareMobReset,
+--     },
+--     {
+--   	name = "Sabriel",
+--   	quest = 58784,
+--   	daily = true,
+--   	func = RareMobUpdate,
+--   	showFunc = RareMobShow,
+--       resetFunc = RareMobReset,
+--     },
+--     {
+--   	name = "Gieger",
+--   	quest = 58872,
+--   	daily = true,
+--   	func = RareMobUpdate,
+--   	showFunc = RareMobShow,
+--       resetFunc = RareMobReset,
+--     },
+  {
+  	name = "Violet Mistake",
+  	quest = 61720,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Valfir",
+  	quest = 61632,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Wild Worldcracker (Kyrian)",
+  	quest = 64552,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Stygian Stonecrusher (Venthyr)",
+  	quest = 64530,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Escaped Wilderling (Night Fae)",
+  	quest = 64320,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Fleshwing (Necrolord)",
+  	quest = 64551,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Reliwik the Defiant",
+  	quest = 64455,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Konthrogz the Obliterator",
+  	quest = 64246,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Fallen Charger",
+  	quest = 64164,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+  {
+  	name = "Malbog",
+  	quest = 64233,
+  	daily = true,
+  	func = RareMobUpdate,
+  	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+  },
+--     {
+--   	name = "Harika",
+--   	quest = 59612,
+--   	daily = true,
+--   	func = RareMobUpdate,
+--   	showFunc = RareMobShow,
+--       resetFunc = RareMobReset,
+--     },
   -- Patterns Within Patterns
   {
     name = L["Patterns Within Patterns"],
@@ -422,6 +596,7 @@ Module.TrackedQuest = {
     resetFunc = KeepProgress,
     relatedQuest = {66042},
   },
+
 }
 
 function Module:OnEnable()
