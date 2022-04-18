@@ -518,7 +518,7 @@ Module.TrackedQuest = {
   },
   {
   	name = "Wild Worldcracker (Kyrian)",
-  	quest = 64552,
+  	quest = 64338,
   	daily = true,
   	func = RareMobUpdate,
   	showFunc = RareMobShow,
@@ -526,7 +526,7 @@ Module.TrackedQuest = {
   },
   {
   	name = "Stygian Stonecrusher (Venthyr)",
-  	quest = 64530,
+  	quest = 64313,
   	daily = true,
   	func = RareMobUpdate,
   	showFunc = RareMobShow,
@@ -542,7 +542,7 @@ Module.TrackedQuest = {
   },
   {
   	name = "Fleshwing (Necrolord)",
-  	quest = 64551,
+  	quest = 64349,
   	daily = true,
   	func = RareMobUpdate,
   	showFunc = RareMobShow,
