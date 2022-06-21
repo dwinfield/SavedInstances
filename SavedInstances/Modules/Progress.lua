@@ -451,7 +451,6 @@ Module.TrackedQuest = {
     relatedQuest = {62638},
   },
   -- Rares
-  -- Rares
 --     {
 --       name = "Steel Singer Freza",
 --       quest = 55854,
@@ -580,6 +579,14 @@ Module.TrackedQuest = {
   	showFunc = RareMobShow,
       resetFunc = RareMobReset,
   },
+  {
+    	name = "Ascended Skymane",
+    	quest = 60933,
+    	daily = true,
+    	func = RareMobUpdate,
+    	showFunc = RareMobShow,
+      resetFunc = RareMobReset,
+    },
 --     {
 --   	name = "Harika",
 --   	quest = 59612,
