@@ -1,11 +1,13 @@
-local SI, L = unpack(select(2, ...))
+local SI, L = unpack((select(2, ...)))
 local Config = SI:NewModule('Config')
-
-SI.config = Config
+local Tooltip = SI:GetModule('Tooltip')
+local Currency = SI:GetModule('Currency')
+local Progress = SI:GetModule('Progress')
+local Warfront = SI:GetModule('Warfront')
 
 -- Lua functions
 local pairs, ipairs, tonumber, tostring, wipe = pairs, ipairs, tonumber, tostring, wipe
-local unpack, date, type, tinsert, sort = unpack, date, type, tinsert, sort
+local unpack, date, tinsert, sort = unpack, date, tinsert, sort
 local _G = _G
 
 -- WoW API / Variables
@@ -13,10 +15,13 @@ local C_CurrencyInfo_GetCurrencyInfo = C_CurrencyInfo.GetCurrencyInfo
 local GetBindingKey = GetBindingKey
 local GetCurrentBindingSet = GetCurrentBindingSet
 local GetRealmName = GetRealmName
-local InterfaceOptionsFrame_OpenToCategory = InterfaceOptionsFrame_OpenToCategory
 local SaveBindings = SaveBindings
 local SetBinding = SetBinding
+
+local HideUIPanel = HideUIPanel
+local Settings_OpenToCategory = Settings.OpenToCategory
 local StaticPopup_Show = StaticPopup_Show
+
 local ALL = ALL
 local CALLINGS_QUESTS = CALLINGS_QUESTS
 local COLOR = COLOR
@@ -195,7 +200,7 @@ function Config:BuildOptions()
         name = L["Show/Hide the SavedInstances tooltip"],
         guiHidden = true,
         type = "execute",
-        func = function() SI:ToggleDetached() end,
+        func = function() Tooltip:ToggleDetached() end,
       },
       General = {
         order = 1,
@@ -384,11 +389,6 @@ function Config:BuildOptions()
             desc = L["Combine LFR"],
             order = 23.95,
           },
-          ProgressHeader = {
-            order = 31,
-            type = "header",
-            name = L["Quest progresses"],
-          },
           WarfrontHeader = {
             order = 33,
             type = "header",
@@ -528,7 +528,7 @@ function Config:BuildOptions()
         },
       },
       Currency = {
-        order = 2,
+        order = 3,
         type = "group",
         name = L["Currency settings"],
         get = function(info)
@@ -575,7 +575,7 @@ function Config:BuildOptions()
         },
       },
       Indicators = {
-        order = 3,
+        order = 4,
         type = "group",
         name = L["Indicators"],
         get = function(info)
@@ -592,7 +592,7 @@ function Config:BuildOptions()
         args = IndicatorOptions(),
       },
       Instances = {
-        order = 4,
+        order = 5,
         type = "group",
         name = L["Instances"],
         childGroups = "select",
@@ -651,7 +651,7 @@ function Config:BuildOptions()
         end)(),
       },
       Characters = {
-        order = 5,
+        order = 6,
         type = "group",
         name = L["Characters"],
         args = {
@@ -821,7 +821,7 @@ function Config:BuildOptions()
                       end
                       tret[tn.."_desc"] = {
                         order = function(info) return t.Order*1000 + ord*10 + 0 end,
-                        name = SI.ColoredToon(toon),
+                        name = SI:ClassColorToon(toon),
                         desc = tn, -- unfortunately does nothing in dialog
                         descStyle = "tooltip",
                         type = "description",
@@ -891,11 +891,8 @@ function Config:BuildOptions()
   for k,v in pairs(opts) do
     SI.Options[k] = v
   end
-  local progress = SI:GetModule("Progress"):BuildOptions(32)
-  for k, v in pairs(progress) do
-    SI.Options.args.General.args[k] = v
-  end
-  local warfront = SI:GetModule("Warfront"):BuildOptions(34)
+  SI.Options.args.Progress = Progress:BuildOptions(2)
+  local warfront = Warfront:BuildOptions(34)
   for k, v in pairs(warfront) do
     SI.Options.args.General.args[k] = v
   end
@@ -909,7 +906,8 @@ function Config:BuildOptions()
   local hdroffset = SI.Options.args.Currency.args.CurrencyHeader.order
   for i, curr in ipairs(SI.currency) do
     local data = C_CurrencyInfo_GetCurrencyInfo(curr)
-    local name, tex = data.name, data.iconFileID
+    local name = Currency.OverrideName[curr] or data.name
+    local tex = Currency.OverrideTexture[curr] or data.iconFileID
     tex = "\124T"..tex..":0\124t "
     SI.Options.args.Currency.args["Currency"..curr] = {
       type = "toggle",
@@ -921,87 +919,45 @@ end
 
 -- global functions
 
-function Config:table_clone(t)
-  if not t then return nil end
-  local r = {}
-  for k,v in pairs(t) do
-    local nk,nv = k,v
-    if type(k) == "table" then
-      nk = Config:table_clone(k)
-    end
-    if type(v) == "table" then
-      nv = Config:table_clone(v)
-    end
-    r[nk] = nv
-  end
-  return r
-end
-
-local firstoptiongroup, lastoptiongroup
-function Config:ReopenConfigDisplay(f)
-  if _G.InterfaceOptionsFrame:IsShown() then
-    _G.InterfaceOptionsFrame:Hide();
-    InterfaceOptionsFrame_OpenToCategory(lastoptiongroup)
-    InterfaceOptionsFrame_OpenToCategory(firstoptiongroup)
-    InterfaceOptionsFrame_OpenToCategory(f)
-  end
-end
-
-function Config:SetupOptions()
-  local AceConfigDialog = LibStub("AceConfigDialog-3.0")
-  local namespace = "SavedInstances"
-  Config:BuildOptions()
-  LibStub("AceConfig-3.0"):RegisterOptionsTable(namespace, SI.Options, { "si", "savedinstances" })
-  local fgen = AceConfigDialog:AddToBlizOptions(namespace, nil, nil, "General")
-  firstoptiongroup = fgen
-  fgen.default = function()
-    SI:Debug("RESET: General")
-    SI.db.Tooltip = Config:table_clone(SI.defaultDB.Tooltip)
-    SI.db.MinimapIcon = Config:table_clone(SI.defaultDB.MinimapIcon)
-    Config:ReopenConfigDisplay(fgen)
-  end
-  local fcur = AceConfigDialog:AddToBlizOptions(namespace, CURRENCY, namespace, "Currency")
-  fcur.default = fgen.default
-  local find = AceConfigDialog:AddToBlizOptions(namespace, L["Indicators"], namespace, "Indicators")
-  find.default = function()
-    SI:Debug("RESET: Indicators")
-    SI.db.Indicators = Config:table_clone(SI.defaultDB.Indicators)
-    Config:ReopenConfigDisplay(find)
-  end
-  local finst = AceConfigDialog:AddToBlizOptions(namespace, L["Instances"], namespace, "Instances")
-  finst.default = function()
-    SI:Debug("RESET: Instances")
-    for _,i in pairs(SI.db.Instances) do
-      i.Show = "saved"
-    end
-    Config:ReopenConfigDisplay(finst)
-  end
-  local ftoon = AceConfigDialog:AddToBlizOptions(namespace, L["Characters"], namespace, "Characters")
-  lastoptiongroup = ftoon
-  Config.ftoon = ftoon
-  ftoon.default = function()
-    SI:Debug("RESET: Toons")
-    for _,i in pairs(SI.db.Toons) do
-      i.Show = "saved"
-    end
-    Config:ReopenConfigDisplay(ftoon)
+local configFrameName, configCharactersFrameName
+function Config:ReopenConfigDisplay(frame)
+  if _G.SettingsPanel:IsShown() then
+    HideUIPanel(_G.SettingsPanel)
+    Settings_OpenToCategory(configFrameName)
+    -- Settings.OpenToCategory(frame)
+    -- Not possible due to lack of WoW feature
   end
 end
 
 function Config:ShowConfig()
-  if _G.InterfaceOptionsFrame:IsShown() then
-    _G.InterfaceOptionsFrame:Hide()
+  if _G.SettingsPanel:IsShown() then
+    HideUIPanel(_G.SettingsPanel)
   else
-    InterfaceOptionsFrame_OpenToCategory(lastoptiongroup)
-    InterfaceOptionsFrame_OpenToCategory(firstoptiongroup)
+    Settings_OpenToCategory(configFrameName)
   end
+end
+
+function Config:SetupOptions()
+  Config:BuildOptions()
+
+  local namespace = "SavedInstances"
+  LibStub("AceConfig-3.0"):RegisterOptionsTable(namespace, SI.Options, { "si", "savedinstances" })
+
+  local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+  local _, genernalFrameName = AceConfigDialog:AddToBlizOptions(namespace, nil, nil, "General")
+  AceConfigDialog:AddToBlizOptions(namespace, L["Quest progresses"], namespace, "Progress")
+  AceConfigDialog:AddToBlizOptions(namespace, CURRENCY, namespace, "Currency")
+  AceConfigDialog:AddToBlizOptions(namespace, L["Indicators"], namespace, "Indicators")
+  AceConfigDialog:AddToBlizOptions(namespace, L["Instances"], namespace, "Instances")
+  local _, charactersFrameName = AceConfigDialog:AddToBlizOptions(namespace, L["Characters"], namespace, "Characters")
+
+  configFrameName = genernalFrameName
+  configCharactersFrameName = charactersFrameName
 end
 
 local function ResetConfirmed()
   SI:Debug("Resetting characters")
-  if SI:IsDetached() then
-    SI:HideDetached()
-  end
+  Tooltip:HideDetached()
   -- clear saves
   for instance, i in pairs(SI.db.Instances) do
     for toon, t in pairs(SI.db.Toons) do
@@ -1012,8 +968,8 @@ local function ResetConfirmed()
   SI.PlayedTime = nil -- reset played cache
   SI:toonInit() -- rebuild SI.thisToon
   SI:Refresh()
-  SI.config:BuildOptions() -- refresh config table
-  SI.config:ReopenConfigDisplay(SI.config.ftoon)
+  Config:BuildOptions() -- refresh config table
+  Config:ReopenConfigDisplay(configCharactersFrameName)
 end
 
 local function DeleteCharacter(toon)
@@ -1022,20 +978,18 @@ local function DeleteCharacter(toon)
     return
   end
   SI:Debug("Deleting character: " .. toon)
-  if SI:IsDetached() then
-    SI:HideDetached()
-  end
+  Tooltip:HideDetached()
   -- clear saves
   for instance, i in pairs(SI.db.Instances) do
     i[toon] = nil
   end
   SI.db.Toons[toon] = nil
-  SI.config:BuildOptions() -- refresh config table
-  SI.config:ReopenConfigDisplay(SI.config.ftoon)
+  Config:BuildOptions() -- refresh config table
+  Config:ReopenConfigDisplay(configCharactersFrameName)
 end
 
 StaticPopupDialogs["SAVEDINSTANCES_RESET"] = {
-  preferredIndex = 3, -- reduce the chance of UI taint
+  preferredIndex = STATICPOPUP_NUMDIALOGS, -- reduce the chance of UI taint
   text = L["Are you sure you want to reset the SavedInstances character database? Characters will be re-populated as you log into them."],
   button1 = OKAY,
   button2 = CANCEL,
@@ -1048,7 +1002,7 @@ StaticPopupDialogs["SAVEDINSTANCES_RESET"] = {
 }
 
 StaticPopupDialogs["SAVEDINSTANCES_DELETE_CHARACTER"] = {
-  preferredIndex = STATICPOPUPS_NUMDIALOGS, -- reduce the chance of UI taint
+  preferredIndex = STATICPOPUP_NUMDIALOGS, -- reduce the chance of UI taint
   text = string.format(L["Are you sure you want to remove %s from the SavedInstances character database?"],"\n\n%s%s\n\n").."\n\n"..
   L["This should only be used for characters who have been renamed or deleted, as characters will be re-populated when you log into them."],
   button1 = OKAY,

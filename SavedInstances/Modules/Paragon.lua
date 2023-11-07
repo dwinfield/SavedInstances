@@ -1,4 +1,4 @@
-local SI, L = unpack(select(2, ...))
+local SI, L = unpack((select(2, ...)))
 local Module = SI:NewModule('Paragon', 'AceEvent-3.0', 'AceTimer-3.0')
 
 -- Lua functions
@@ -46,6 +46,13 @@ local factionID = {
   2470, -- Death's Advance
   2472, -- The Archivists' Codex
   2478, -- The Enlightened
+
+  -- Dragonflight
+  2503, -- Maruuk Centaur
+  2507, -- Dragonscale Expedition
+  2510, -- Valdrakken Accord
+  2511, -- Iskaara Tuskarr
+  2564, -- Loamm Niffen
 }
 
 function Module:OnEnable()

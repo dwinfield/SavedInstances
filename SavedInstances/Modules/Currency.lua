@@ -1,15 +1,15 @@
-local SI, L = unpack(select(2, ...))
+local SI, L = unpack((select(2, ...)))
 local Module = SI:NewModule('Currency', 'AceEvent-3.0', 'AceTimer-3.0', 'AceBucket-3.0')
 
 -- Lua functions
-local ipairs, pairs, wipe = ipairs, pairs, wipe
+local ipairs, pairs = ipairs, pairs
 
 -- WoW API / Variables
 local C_Covenants_GetActiveCovenantID = C_Covenants.GetActiveCovenantID
 local C_CurrencyInfo_GetCurrencyInfo = C_CurrencyInfo.GetCurrencyInfo
+local C_QuestLog_IsQuestFlaggedCompleted = C_QuestLog.IsQuestFlaggedCompleted
 local GetItemCount = GetItemCount
 local GetMoney = GetMoney
-local IsQuestFlaggedCompleted = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted or IsQuestFlaggedCompleted
 
 local currency = {
   81, -- Epicurean Award
@@ -82,6 +82,22 @@ local currency = {
   1979, -- Cyphers of the First Ones
   2009, -- Cosmic Flux
   2000, -- Motes of Fate
+
+  -- Dragonflight
+  2003, -- Dragon Isles Supplies
+  2011, -- Effigy Adornments
+  2045, -- Purified Arcane Energy
+  2118, -- Elemental Overflow
+  2122, -- Storm Sigil
+  2123, -- Bloody Tokens
+  2245, -- Flightstones
+  2409, -- Whelpling Crest Fragment Tracker [DNT]
+  2410, -- Drake Crest Fragment Tracker [DNT]
+  2411, -- Wyrm Crest Fragment Tracker [DNT]
+  2412, -- Aspect Crest Fragment Tracker [DNT]
+  2413, -- 10.1 Professions - Personal Tracker - S2 Spark Drops (Hidden)
+  2533, -- Renascent Shadowflame
+  2594, -- Paracausal Flakes
 }
 SI.currency = currency
 
@@ -95,6 +111,9 @@ table.sort(currencySorted, function (c1, c2)
   return c1_name < c2_name
 end)
 SI.currencySorted = currencySorted
+
+local hiddenCurrency = {
+}
 
 local specialCurrency = {
   [1129] = { -- WoD - Seal of Tempered Fate
@@ -158,19 +177,35 @@ for _, tbl in pairs(specialCurrency) do
   end
 end
 
+Module.OverrideName = {
+  [2409] = L["Loot Whelpling Crest Fragment"], -- Whelpling Crest Fragment Tracker [DNT]
+  [2410] = L["Loot Drake Crest Fragment"], -- Drake Crest Fragment Tracker [DNT]
+  [2411] = L["Loot Wyrm Crest Fragment"], -- Wyrm Crest Fragment Tracker [DNT]
+  [2412] = L["Loot Aspect Crest Fragment"], -- Aspect Crest Fragment Tracker [DNT]
+  [2413] = L["Loot Spark of Shadowflame"], -- 10.1 Professions - Personal Tracker - S2 Spark Drops (Hidden)
+}
+
+Module.OverrideTexture = {
+  [2413] = 5088829, -- 10.1 Professions - Personal Tracker - S2 Spark Drops (Hidden)
+}
+
 function Module:OnEnable()
+  self:RegisterEvent("PLAYER_MONEY", "UpdateCurrency")
   self:RegisterBucketEvent("CURRENCY_DISPLAY_UPDATE", 0.25, "UpdateCurrency")
   self:RegisterEvent("BAG_UPDATE", "UpdateCurrencyItem")
 end
 
 function Module:UpdateCurrency()
   if SI.logout then return end -- currency is unreliable during logout
+
   local t = SI.db.Toons[SI.thisToon]
   t.Money = GetMoney()
   t.currency = t.currency or {}
+
+  local covenantID = C_Covenants_GetActiveCovenantID()
   for _,idx in ipairs(currency) do
     local data = C_CurrencyInfo_GetCurrencyInfo(idx)
-    if not data.discovered then
+    if not data.discovered and not hiddenCurrency[idx] then
       t.currency[idx] = nil
     else
       local ci = t.currency[idx] or {}
@@ -182,14 +217,13 @@ function Module:UpdateCurrency()
         ci.totalEarned = data.totalEarned
       end
       -- handle special currency
-      local covenantID = C_Covenants_GetActiveCovenantID()
       if specialCurrency[idx] then
         local tbl = specialCurrency[idx]
         if tbl.weeklyMax then ci.weeklyMax = tbl.weeklyMax end
         if tbl.earnByQuest then
           ci.earnedThisWeek = 0
           for _, questID in ipairs(tbl.earnByQuest) do
-            if IsQuestFlaggedCompleted(questID) then
+            if C_QuestLog_IsQuestFlaggedCompleted(questID) then
               ci.earnedThisWeek = ci.earnedThisWeek + 1
             end
           end

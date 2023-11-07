@@ -1,4 +1,4 @@
-local SI, L = unpack(select(2, ...))
+local SI, L = unpack((select(2, ...)))
 local Module = SI:NewModule('MythicPlus', 'AceEvent-3.0', 'AceBucket-3.0')
 
 -- Lua functions
@@ -8,6 +8,9 @@ local ipairs, sort, strsplit, tonumber, wipe = ipairs, sort, strsplit, tonumber,
 -- WoW API / Variables
 local C_ChallengeMode_GetKeystoneLevelRarityColor = C_ChallengeMode.GetKeystoneLevelRarityColor
 local C_ChallengeMode_GetMapUIInfo = C_ChallengeMode.GetMapUIInfo
+local C_Container_GetContainerItemID = C_Container.GetContainerItemID
+local C_Container_GetContainerItemLink = C_Container.GetContainerItemLink
+local C_Container_GetContainerNumSlots = C_Container.GetContainerNumSlots
 local C_MythicPlus_GetRunHistory = C_MythicPlus.GetRunHistory
 local C_MythicPlus_RequestMapInfo = C_MythicPlus.RequestMapInfo
 local C_MythicPlus_GetRewardLevelFromKeystoneLevel = C_MythicPlus.GetRewardLevelFromKeystoneLevel
@@ -15,9 +18,6 @@ local C_WeeklyRewards_GetActivities = C_WeeklyRewards.GetActivities
 local C_WeeklyRewards_HasAvailableRewards = C_WeeklyRewards.HasAvailableRewards
 local C_WeeklyRewards_CanClaimRewards = C_WeeklyRewards.CanClaimRewards
 local CreateFrame = CreateFrame
-local GetContainerItemID = GetContainerItemID
-local GetContainerItemLink = GetContainerItemLink
-local GetContainerNumSlots = GetContainerNumSlots
 local SendChatMessage = SendChatMessage
 
 local StaticPopup_Show = StaticPopup_Show
@@ -25,13 +25,47 @@ local StaticPopup_Show = StaticPopup_Show
 local Enum_WeeklyRewardChestThresholdType_MythicPlus = Enum.WeeklyRewardChestThresholdType.MythicPlus
 
 local KeystoneAbbrev = {
+  -- Cataclysm
+  [438] = L["VP"], -- The Vortex Pinnacle
+
+  -- Mists of Pandaria
+  [2]   = L["TJS"],  -- Temple of the Jade Serpent
+
+  -- Warlords of Draenor
+  [165] = L["SBG"],   -- Shadowmoon Burial Grounds
+  [166] = L["GD"],    -- Grimrail Depot
+  [169] = L["ID"],    -- Iron Docks
+
+  -- Legion
   [197] = L["EOA"],   -- Eye of Azshara
   [198] = L["DHT"],   -- Darkheart Thicket
   [199] = L["BRH"],   -- Black Rook Hold
+  [200] = L["HOV"],   -- Halls of Valor
   [206] = L["NL"],    -- Neltharion's Lair
   [207] = L["VOTW"],  -- Vault of the Wardens
+  [208] = L["MOS"],   -- Maw of Souls
+  [209] = L["ARC"],   -- The Arcway
   [210] = L["COS"],   -- Court of Stars
+  [227] = L["LOWR"],  -- Return to Karazhan: Lower
+  [233] = L["COEN"],  -- Cathedral of Eternal Night
+  [234] = L["UPPR"],  -- Return to Karazhan: Upper
+  [239] = L["SEAT"],  -- Seat of the Triumvirate
 
+  -- Battle for Azeroth
+  [244] = L["AD"],    -- Atal'Dazar
+  [245] = L["FH"],    -- Freehold
+  [246] = L["TD"],    -- Tol Dagor
+  [247] = L["ML"],    -- The MOTHERLODE!!
+  [248] = L["WM"],    -- Waycrest Manor
+  [249] = L["KR"],    -- Kings' Rest
+  [250] = L["TOS"],   -- Temple of Sethraliss
+  [251] = L["UNDR"],  -- The Underrot
+  [252] = L["SOTS"],  -- Shrine of the Storm
+  [353] = L["SIEGE"], -- Siege of Boralus
+  [369] = L["YARD"],  -- Operation: Mechagon - Junkyard
+  [370] = L["WORK"],  -- Operation: Mechagon - Workshop
+
+  -- Shadowlands
   [375] = L["MISTS"], -- Mists of Tirna Scithe
   [376] = L["NW"],    -- The Necrotic Wake
   [377] = L["DOS"],   -- De Other Side
@@ -42,6 +76,16 @@ local KeystoneAbbrev = {
   [382] = L["TOP"],   -- Theater of Pain
   [391] = L["STRT"],  -- Tazavesh: Streets of Wonder
   [392] = L["GMBT"],  -- Tazavesh: So'leah's Gambit
+
+  -- Dragonflight
+  [399] = L["RLP"],   -- Ruby Life Pools
+  [400] = L["TNO"],   -- The Nokhud Offensive
+  [401] = L["TAV"],   -- The Azure Vault
+  [402] = L["AA"],    -- Algeth'ar Academy
+  [403] = L["ULD"],   -- Uldaman: Legacy of Tyr
+  [404] = L["NELT"],  -- Neltharus
+  [405] = L["BH"],    -- Brackenhide Hollow
+  [406] = L["HOI"],   -- Halls of Infusion
 }
 SI.KeystoneAbbrev = KeystoneAbbrev
 
@@ -92,12 +136,12 @@ function Module:RefreshMythicKeyInfo()
   t.MythicKey = wipe(t.MythicKey or {})
   t.TimewornMythicKey = wipe(t.TimewornMythicKey or {})
   for bagID = 0, 4 do
-    for invID = 1, GetContainerNumSlots(bagID) do
-      local itemID = GetContainerItemID(bagID, invID)
-      if itemID and itemID == 180653 then
-        self:ProcessKey(GetContainerItemLink(bagID, invID), t.MythicKey)
-      elseif itemID and itemID == 187786 then
-        self:ProcessKey(GetContainerItemLink(bagID, invID), t.TimewornMythicKey)
+    for invID = 1, C_Container_GetContainerNumSlots(bagID) do
+      local itemID = C_Container_GetContainerItemID(bagID, invID)
+      if itemID and (itemID == 180653 or itemID == 186159) then -- Dragonflight or Beta
+        self:ProcessKey(C_Container_GetContainerItemLink(bagID, invID), t.MythicKey)
+      elseif itemID and itemID == 187786 then -- Timewalking
+        self:ProcessKey(C_Container_GetContainerItemLink(bagID, invID), t.TimewornMythicKey)
       end
     end
   end
@@ -232,7 +276,7 @@ function Module:ExportKeys(index)
 end
 
 StaticPopupDialogs["SAVEDINSTANCES_REPORT_KEYS"] = {
-  preferredIndex = STATICPOPUPS_NUMDIALOGS, -- reduce the chance of UI taint
+  preferredIndex = STATICPOPUP_NUMDIALOGS, -- reduce the chance of UI taint
   text = L["Are you sure you want to report all your keys to %s?"],
   button1 = OKAY,
   button2 = CANCEL,

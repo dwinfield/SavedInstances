@@ -1,4 +1,4 @@
-local SI, L = unpack(select(2, ...))
+local SI, L = unpack((select(2, ...)))
 
 -- Lua functions
 local _G = _G
@@ -6,34 +6,14 @@ local format, strmatch, strupper = format, strmatch, strupper
 
 -- WoW API / Variables
 local C_Map_GetBestMapForUnit = C_Map.GetBestMapForUnit
+local C_UnitAuras_GetPlayerAuraBySpellID = C_UnitAuras.GetPlayerAuraBySpellID
 local GetCurrentRegion = GetCurrentRegion
 local GetCVar = GetCVar
 local GetTime = GetTime
-local UnitAura = UnitAura
 
--- UnitAura/UnitBuff/UnitDebuff fix for Patch 8.0
--- Get these functions from WeakAuras 2
-function SI:GetUnitAura(unit, spell, filter)
-  if filter and not filter:upper():find('FUL') then
-    filter = filter .. '|HELPFUL'
-  end
-  for i = 1, 255 do
-    local name, _, _, _, _, _, _, _, _, spellId = UnitAura(unit, i, filter)
-    if not name then return end
-    if spell == spellId or spell == name then
-      return UnitAura(unit, i, filter)
-    end
-  end
-end
-
-function SI:GetUnitBuff(unit, spell, filter)
-  filter = filter and filter .. '|HELPFUL' or 'HELPFUL'
-  return SI:GetUnitAura(unit, spell, filter)
-end
-
-function SI:GetUnitDebuff(unit, spell, filter)
-  filter = filter and filter .. '|HARMFUL' or 'HARMFUL'
-  return SI:GetUnitAura(unit, spell, filter)
+function SI:GetPlayerAuraExpirationTime(spellID)
+  local info = C_UnitAuras_GetPlayerAuraBySpellID(spellID)
+  return info and info.expirationTime
 end
 
 -- Chat Message and Bug Report Reminder
@@ -84,4 +64,36 @@ end
 -- Get Current uiMapID
 function SI:GetCurrentMapAreaID()
   return C_Map_GetBestMapForUnit('player')
+end
+
+function SI:ClassColorString(toon, str)
+  if not str then
+    str = toon
+  end
+
+  local class = SI.db.Toons[toon] and SI.db.Toons[toon].class
+  if not class then
+    return str
+  end
+
+  local color = (CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS[class]) or RAID_CLASS_COLORS[class]
+  if color.colorStr then
+    return "|c" .. color.colorStr .. str .. FONT_COLOR_CODE_CLOSE
+  end
+
+  local r = color[1] or color.r
+  local g = color[2] or color.g
+  local b = color[3] or color.b
+  local a = color[4] or color.a or 1
+
+  return format(
+    "|c%02x%02x%02x%02x%s%s",
+    floor(a * 255), floor(r * 255), floor(g * 255), floor(b * 255),
+    str, FONT_COLOR_CODE_CLOSE
+  )
+end
+
+function SI:ClassColorToon(toon)
+  local str = (SI.db.Tooltip.ShowServer and toon) or strsplit(' ', toon)
+  return SI:ClassColorString(toon, str)
 end

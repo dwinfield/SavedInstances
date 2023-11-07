@@ -1,4 +1,4 @@
-local SI, L = unpack(select(2, ...))
+local SI, L = unpack((select(2, ...)))
 
 local QTip = SI.Libs.QTip
 local db
@@ -23,14 +23,21 @@ local GRAY_COLOR = { 0.5, 0.5, 0.5, 1 }
 local INSTANCE_SAVED, TRANSFER_ABORT_TOO_MANY_INSTANCES, NO_RAID_INSTANCES_SAVED =
   INSTANCE_SAVED, TRANSFER_ABORT_TOO_MANY_INSTANCES, NO_RAID_INSTANCES_SAVED
 
-local IsQuestFlaggedCompleted = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted or IsQuestFlaggedCompleted
-
 local ALREADY_LOOTED = ERR_LOOT_GONE:gsub("%(.*%)","")
 ALREADY_LOOTED = ALREADY_LOOTED:gsub("（.*）","") -- fix on zhCN and zhTW
 
 local currency = SI.currency
 local QuestExceptions = SI.QuestExceptions
 local TimewalkingItemQuest = SI.TimewalkingItemQuest
+
+local Config = SI:GetModule('Config')
+local Tooltip = SI:GetModule('Tooltip')
+local Calling = SI:GetModule('Calling')
+local Currency = SI:GetModule('Currency')
+local MythicPlus = SI:GetModule('MythicPlus')
+local Progress = SI:GetModule('Progress')
+local TradeSkill = SI:GetModule('TradeSkill')
+local Warfront = SI:GetModule('Warfront')
 
 SI.Indicators = {
   ICON_STAR = ICON_LIST[1] .. "16:16:0:0|t",
@@ -56,8 +63,6 @@ for i = 0,10 do
     break
   end
 end
-
-local tooltip, indicatortip = nil, nil
 
 function SI:QuestInfo(questid)
   if not questid or questid == 0 then return nil end
@@ -155,6 +160,8 @@ SI.defaultDB = {
   -- Arena2v2rating: integer
   -- Arena3v3rating: integer
   -- RBGrating: integer
+  -- SoloShuffleRating: table
+  -- SpecializationIDs: table
 
   -- currency: key: currencyID  value:
   -- amount: integer
@@ -244,14 +251,7 @@ SI.defaultDB = {
   -- }
 
   -- Progress
-  -- [index] = {
-  --   unlocked = (boolean), -- if player can complete this quest
-  --   isComplete = isComplete,
-  --   isFinish = isFinish,
-  --   numFulfilled = numFulfilled,
-  --   numRequired = numRequired,
-  --   -- others
-  -- }
+  -- table<string, QuestStore|QuestListStore|table>
 
   -- Warfront
   -- [index] = {
@@ -364,12 +364,10 @@ SI.defaultDB = {
     TrackPlayed = true,
     AugmentBonus = true,
     CurrencyValueColor = true,
-    Currency1767 = true, -- Stygia
-    Currency1602 = true, -- Conquest
-    Currency1792 = true, -- Honor
-    Currency1822 = true, -- Renown
-    Currency1979 = true, -- Cyphers of the First Ones
-    Currency2009 = true, -- Cosmic Flux
+    Currency2003 = true, -- Dragon Isles Supplies
+    Currency2123 = true, -- Bloody Tokens
+    Currency2245 = true, -- Flightstones
+    Currency2533 = true, -- Renascent Shadowflame
     CurrencyMax = false,
     CurrencyEarned = true,
     CurrencySortName = false,
@@ -386,16 +384,6 @@ SI.defaultDB = {
     Calling = true,
     CallingShowCompleted = true,
     CombineCalling = true,
-    Progress1 = true, -- PvP Conquest
-    Progress2 = false, -- Island Weekly
-    Progress3 = false, -- Horrific Vision
-    Progress4 = false, -- N'Zoth Assaults
-    Progress5 = false, -- Lesser Visions of N'Zoth
-    Progress6 = false, -- Torghast Weekly
-    Progress7 = false, -- Covenant Assaults
-    Progress8 = false, -- The World Awaits
-    Progress9 = false, -- Emissary of War
-    Progress10 = true, -- Patterns Within Patterns
     Warfront1 = false, -- Arathi Highlands
     Warfront2 = false, -- Darkshores
     KeystoneReportTarget = "EXPORT",
@@ -503,17 +491,6 @@ local function ClassColorise(class, targetstring)
   return c .. targetstring .. FONTEND
 end
 
-function SI.ColoredToon(toon, fullname)
-  local str = (fullname and toon) or strsplit(' ',toon)
-  local t = SI.db.Toons[toon]
-  local class = t and t.Class
-  if class then
-    return ClassColorise(class, str)
-  else
-    return str
-  end
-end
-
 local function CurrencyColor(amt, max)
   amt = amt or 0
   local samt = SI:formatNumber(amt)
@@ -549,7 +526,7 @@ function SI:QuestIgnored(questID)
       return
     end
     return true
-  elseif SI:GetModule("Progress"):QuestEnabled(questID) then
+  elseif Progress:QuestEnabled(questID) then
     return true
   end
 end
@@ -617,7 +594,9 @@ SI.transInstance = {
   [1530] = 1353, -- The Nighthold: issue #186 frFR
   [585] = 1154, -- Magisters' Terrace: issue #293 frFR
   [2235] = 1911, -- Caverns of Time - Anniversary: issue #315 (fake LFDID used by Escape from Tol Dagor)
-  [725] = 1148, -- The Stonecore: issue #328 frFR
+  [725] = 320, -- The Stonecore: issue #328 frFR
+  [2515] = 2335, -- The Azure Vault: issue #630 deDE
+  [550] = 193, -- Tempest Keep: issue #612 ruRU
 }
 
 -- some instances (like sethekk halls) are named differently by GetSavedInstanceInfo() and LFGGetDungeonInfoByID()
@@ -740,7 +719,7 @@ local _instance_exceptions = {
   [50] = { -- Blackwing Lair
     12435, -- Razorgore the Untamed
     13020, -- Vaelastrasz the Corrupt
-    12017, -- Boodlord Lashlayer
+    12017, -- Broodlord Lashlayer
     11983, -- Firemaw
     14601, -- Ebonroc
     11981, -- Flamegor
@@ -1007,7 +986,7 @@ local function DifficultyString(instance, diff, toon, expired, killoverride, tot
       killed = "*"
       total = "*"
     elseif killed == 1 and total == 1 and not expired then
-      text = "\124T"..READY_CHECK_READY_TEXTURE..":0|t" -- checkmark
+      text = SI.questCheckMark
     end
     text = text:gsub("KILLED",killed)
     text = text:gsub("TOTAL",total)
@@ -1119,7 +1098,7 @@ function SI:UpdateInstanceData()
   -- SI.lfdid_to_name = lfdid_to_name
   -- SI.wbid_to_name = wbid_to_name
 
-  SI.config:BuildOptions() -- refresh config table
+  Config:BuildOptions() -- refresh config table
 
   starttime = debugprofilestop()-starttime
   SI:Debug("UpdateInstanceData(): completed in %.3f ms : %d added, %d renames, %d merges, %d conflicts.",
@@ -1326,9 +1305,9 @@ function SI:UpdateToonData()
     RequestTimePlayed()
   end
   t.LFG1 = SI:GetTimeToTime(GetLFGRandomCooldownExpiration()) or t.LFG1
-  t.LFG2 = SI:GetTimeToTime(select(6, GetPlayerAuraBySpellID(71041))) or t.LFG2 -- GetLFGDeserterExpiration()
+  t.LFG2 = SI:GetTimeToTime(SI:GetPlayerAuraExpirationTime(71041)) or t.LFG2 -- GetLFGDeserterExpiration()
   if t.LFG2 then SI:updateSpellTip(71041) end
-  t.pvpdesert = SI:GetTimeToTime(select(6, GetPlayerAuraBySpellID(26013))) or t.pvpdesert
+  t.pvpdesert = SI:GetTimeToTime(SI:GetPlayerAuraExpirationTime(26013)) or t.pvpdesert
   if t.pvpdesert then SI:updateSpellTip(26013) end
   for toon, ti in pairs(SI.db.Toons) do
     if ti.LFG1 and (ti.LFG1 < now) then ti.LFG1 = nil end
@@ -1336,16 +1315,28 @@ function SI:UpdateToonData()
     if ti.pvpdesert and (ti.pvpdesert < now) then ti.pvpdesert = nil end
     ti.Quests = ti.Quests or {}
   end
-  local IL,ILe = GetAverageItemLevel()
+  local IL,ILe,ILPvp = GetAverageItemLevel()
   if IL and tonumber(IL) and tonumber(IL) > 0 then -- can fail during logout
     t.IL, t.ILe = tonumber(IL), tonumber(ILe)
+  end
+  if ILPvp and tonumber(ILPvp) > 0 then
+    t.ILPvp = tonumber(ILPvp)
   end
   t.Arena2v2rating = tonumber(GetPersonalRatedInfo(1), 10) or t.Arena2v2rating
   t.Arena3v3rating = tonumber(GetPersonalRatedInfo(2), 10) or t.Arena3v3rating
   t.RBGrating = tonumber(GetPersonalRatedInfo(4), 10) or t.RBGrating
-  SI:GetModule("TradeSkill"):ScanItemCDs()
-  local Calling = SI:GetModule("Calling")
-  local Progress = SI:GetModule("Progress")
+
+  t.SpecializationIDs = t.SpecializationIDs or {}
+  for i = 1, GetNumSpecializations() do
+    t.SpecializationIDs[i] = GetSpecializationInfo(i) or t.SpecializationIDs[i]
+  end
+  -- Solo Shuffle rating is unique to each specialization
+  t.SoloShuffleRating = t.SoloShuffleRating or {}
+  local currentSpecID = GetSpecialization()
+  if currentSpecID then
+    t.SoloShuffleRating[currentSpecID] = GetPersonalRatedInfo(7) or t.SoloShuffleRating[currentSpecID]
+  end
+  TradeSkill:ScanItemCDs()
   -- Daily Reset
   if nextreset and nextreset > time() then
     for toon, ti in pairs(SI.db.Toons) do
@@ -1460,7 +1451,7 @@ function SI:UpdateToonData()
     end
   end
   Calling:PostRefresh()
-  SI:GetModule("Currency"):UpdateCurrency()
+  Currency:UpdateCurrency()
   local zone = GetRealZoneText()
   if zone and #zone > 0 then
     t.Zone = zone
@@ -1578,24 +1569,6 @@ local function coloredText(fontstring)
     textAlpha*255, textR*255, textG*255, textB*255)
 end
 
-local function openIndicator(...)
-  indicatortip = QTip:Acquire("SavedInstancesIndicatorTooltip", ...)
-  SI.indicatortip = indicatortip -- expose indicatortip to BonusRoll and Progress, remove in future
-  indicatortip:Clear()
-  indicatortip:SetHeaderFont(SI:HeaderFont())
-  indicatortip:SetScale(SI.db.Tooltip.Scale)
-end
-
-local function finishIndicator(parent)
-  parent = parent or tooltip
-  indicatortip:SetAutoHideDelay(0.1, parent)
-  indicatortip.OnRelease = function() indicatortip = nil end -- extra-safety: update our variable on auto-release
-  indicatortip:SmartAnchorTo(parent)
-  indicatortip:SetFrameLevel(150) -- ensure visibility when forced to overlap main tooltip
-  SI:SkinFrame(indicatortip,"SavedInstancesIndicatorTooltip")
-  indicatortip:Show()
-end
-
 -- Hover Tooltips
 local hoverTooltip = {}
 SI.hoverTooltip = hoverTooltip
@@ -1605,7 +1578,7 @@ hoverTooltip.ShowToonTooltip = function (cell, arg, ...)
   if not toon then return end
   local t = SI.db.Toons[toon]
   if not t then return end
-  openIndicator(2, "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT","RIGHT")
   local ftex = ""
   if t.Faction == "Alliance" then
     ftex = "\124TInterface\\TargetingFrame\\UI-PVP-Alliance:0:0:0:0:100:100:0:50:0:55\124t "
@@ -1620,6 +1593,7 @@ hoverTooltip.ShowToonTooltip = function (cell, arg, ...)
     indicatortip:AddLine(COMBAT_XP_GAIN, format("%.0f%% + %.0f%%", t.XP / t.MaxXP * 100, percent))
   end
   indicatortip:AddLine(STAT_AVERAGE_ITEM_LEVEL,("%d "):format(t.IL or 0)..STAT_AVERAGE_ITEM_LEVEL_EQUIPPED:format(t.ILe or 0))
+  indicatortip:AddLine(LFG_LIST_ITEM_LEVEL_INSTR_PVP_SHORT,("%d"):format(t.ILPvp or 0))
   if t.Covenant and t.Covenant > 0 then
     local data = C_Covenants.GetCovenantData(t.Covenant)
     local name = data and data.name
@@ -1638,6 +1612,14 @@ hoverTooltip.ShowToonTooltip = function (cell, arg, ...)
   end
   if t.RBGrating and t.RBGrating > 0 then
     indicatortip:AddLine(BG_RATING_ABBR, t.RBGrating)
+  end
+  if t.SoloShuffleRating and t.SpecializationIDs then
+    for i, specID in ipairs(t.SpecializationIDs) do
+      if t.SoloShuffleRating[i] and t.SoloShuffleRating[i] > 0 then
+        local _, specName = GetSpecializationInfoForSpecID(specID)
+        indicatortip:AddLine(PVP_RATED_SOLO_SHUFFLE .. " " .. RATING .. ": " .. specName, t.SoloShuffleRating[i])
+      end
+    end
   end
   if t.Money then
     indicatortip:AddLine(MONEY,SI:formatNumber(t.Money,true))
@@ -1663,7 +1645,7 @@ hoverTooltip.ShowToonTooltip = function (cell, arg, ...)
     indicatortip:AddLine((TIME_PLAYED_TOTAL):format(""),SecondsToTime(t.PlayedTotal))
     indicatortip:AddLine((TIME_PLAYED_LEVEL):format(""),SecondsToTime(t.PlayedLevel))
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowQuestTooltip = function (cell, arg, ...)
@@ -1678,7 +1660,7 @@ hoverTooltip.ShowQuestTooltip = function (cell, arg, ...)
     scopestr = ClassColorise(t.Class, toon)
     reset = (isDaily and t.DailyResetTime) or (not isDaily and t.WeeklyResetTime)
   end
-  openIndicator(2, "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT","RIGHT")
   indicatortip:AddHeader(scopestr, qstr)
   if not reset then
     reset = (isDaily and SI:GetNextDailyResetTime()) or (not isDaily and SI:GetNextWeeklyResetTime())
@@ -1718,7 +1700,7 @@ hoverTooltip.ShowQuestTooltip = function (cell, arg, ...)
     indicatortip:SetCell(line,1,zonename,"LEFT")
     indicatortip:SetCell(line,2,link,"RIGHT")
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowSkillTooltip = function (cell, arg, ...)
@@ -1726,7 +1708,7 @@ hoverTooltip.ShowSkillTooltip = function (cell, arg, ...)
   local cstr = cnt.." "..L["Trade Skill Cooldowns"]
   local t = SI.db.Toons[toon]
   if not t then return end
-  openIndicator(3, "LEFT","RIGHT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(3, "LEFT","RIGHT","RIGHT")
   local tname = ClassColorise(t.Class, toon)
   indicatortip:AddHeader()
   indicatortip:SetCell(1,1,tname,"LEFT")
@@ -1751,14 +1733,14 @@ hoverTooltip.ShowSkillTooltip = function (cell, arg, ...)
     indicatortip:SetCell(line,1,title,"LEFT",2)
     indicatortip:SetCell(line,3,tstr,"RIGHT")
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowEmissarySummary = function (cell, arg, ...)
   local expansionLevel, days = unpack(arg)
   local day
   local first = true
-  openIndicator(2, "LEFT", "RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT", "RIGHT")
   for _, day in pairs(days) do
     if first == false then
       indicatortip:AddSeparator(6,0,0,0,0)
@@ -1801,9 +1783,9 @@ hoverTooltip.ShowEmissarySummary = function (cell, arg, ...)
               end
               local text
               if info.isComplete == true then
-                text = "\124T"..READY_CHECK_READY_TEXTURE..":0|t"
+                text = SI.questCheckMark
               elseif info.isFinish == true then
-                text = "\124T"..READY_CHECK_WAITING_TEXTURE..":0|t"
+                text = SI.questTurnin
               else
                 text = info.questDone
                 if globalInfo.questNeed then
@@ -1817,20 +1799,20 @@ hoverTooltip.ShowEmissarySummary = function (cell, arg, ...)
       end
     end
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowEmissaryTooltip = function (cell, arg, ...)
   local expansionLevel, day, toon = unpack(arg)
   local info = db.Toons[toon].Emissary[expansionLevel].days[day]
   if not info then return end
-  openIndicator(2, "LEFT", "RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT", "RIGHT")
   local globalInfo = SI.db.Emissary.Expansion[expansionLevel][day] or {}
   local text
   if info.isComplete == true then
-    text = "\124T"..READY_CHECK_READY_TEXTURE..":0|t"
+    text = SI.questCheckMark
   elseif info.isFinish == true then
-    text = "\124T"..READY_CHECK_WAITING_TEXTURE..":0|t"
+    text = SI.questTurnin
   else
     text = info.questDone
     if globalInfo.questNeed then
@@ -1852,26 +1834,27 @@ hoverTooltip.ShowEmissaryTooltip = function (cell, arg, ...)
       text = GetMoneyString(info.questReward.money)
     elseif info.questReward.currencyID then
       local data = C_CurrencyInfo.GetCurrencyInfo(info.questReward.currencyID)
-      text = "\124T" .. data.iconFileID .. ":0\124t " .. info.questReward.quantity
+      local iconID = Currency.OverrideTexture[info.questReward.currencyID] or data.iconFileID
+      text = "\124T" .. iconID .. ":0\124t " .. info.questReward.quantity
     end
     indicatortip:AddLine()
     indicatortip:SetCell(3, 1, text, "RIGHT", 2)
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowCallingTooltip = function (cell, arg, ...)
   local day, toon = unpack(arg)
   local info = db.Toons[toon].Calling[day]
   if not info then return end
-  openIndicator(2, "LEFT", "RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT", "RIGHT")
   local text
   if info.isCompleted == true then
-    text = "\124T"..READY_CHECK_READY_TEXTURE..":0|t"
+    text = SI.questCheckMark
   elseif not info.isOnQuest then
-    text = "\124cFFFFFF00!\124r"
+    text = SI.questNormal
   elseif info.isFinished == true then
-    text = "\124T"..READY_CHECK_WAITING_TEXTURE..":0|t"
+    text = SI.questTurnin
   else
     if info.objectiveType == 'progressbar' then
       text = floor(info.questDone / info.questNeed * 100) .. "%"
@@ -1897,21 +1880,21 @@ hoverTooltip.ShowCallingTooltip = function (cell, arg, ...)
     indicatortip:AddLine()
     indicatortip:SetCell(3, 1, text, "RIGHT", 2)
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowParagonTooltip = function (cell, arg, ...)
   local toon = arg
   local t = SI.db.Toons[toon]
   if not t or not t.Paragon then return end
-  openIndicator(2, "LEFT", "RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT", "RIGHT")
   indicatortip:AddHeader(ClassColorise(t.Class, toon), #t.Paragon)
   for k, v in pairs(t.Paragon) do
     local name = GetFactionInfoByID(v)
     indicatortip:AddLine()
     indicatortip:SetCell(k + 1, 1, name, "RIGHT", 2)
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowMythicPlusTooltip = function (cell, arg, ...)
@@ -1920,7 +1903,7 @@ hoverTooltip.ShowMythicPlusTooltip = function (cell, arg, ...)
   if not t or not t.MythicKeyBest then
     return
   end
-  openIndicator(2, "LEFT", "RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT", "RIGHT")
   local text = keydesc or ""
   indicatortip:AddHeader(ClassColorise(t.Class, toon), text)
   if t.MythicKeyBest.runHistory and #t.MythicKeyBest.runHistory > 0 then
@@ -1943,7 +1926,7 @@ hoverTooltip.ShowMythicPlusTooltip = function (cell, arg, ...)
       end
     end
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowBonusTooltip = function (cell, arg, ...)
@@ -1954,7 +1937,11 @@ hoverTooltip.ShowBonusTooltip = function (cell, arg, ...)
   end
   local t = SI.db.Toons[toon]
   if not t or not t.BonusRoll then return end
-  openIndicator(4, "LEFT","LEFT","LEFT","LEFT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(4, "LEFT","LEFT","LEFT","LEFT")
+  if parent then
+    indicatortip:SetAutoHideDelay(0.1, parent)
+    indicatortip:SmartAnchorTo(parent)
+  end
   local tname = ClassColorise(t.Class, toon)
   indicatortip:AddHeader()
   indicatortip:SetCell(1,1,tname,"LEFT",2)
@@ -1964,7 +1951,7 @@ hoverTooltip.ShowBonusTooltip = function (cell, arg, ...)
   for i,roll in ipairs(t.BonusRoll) do
     if i > 10 then break end
     local line = indicatortip:AddLine()
-    local icon = roll.costCurrencyID and C_CurrencyInfo.GetCurrencyInfo(roll.costCurrencyID).iconFileID
+    local icon = roll.costCurrencyID and (Currency.OverrideTexture[roll.costCurrencyID] or C_CurrencyInfo.GetCurrencyInfo(roll.costCurrencyID).iconFileID)
     if icon then
       indicatortip:SetCell(line,1, " \124T"..icon..":0\124t ")
     end
@@ -1975,7 +1962,7 @@ hoverTooltip.ShowBonusTooltip = function (cell, arg, ...)
       indicatortip:SetCell(line,3,roll.item)
     elseif roll.currencyID then
       local data = C_CurrencyInfo.GetCurrencyInfo(roll.currencyID)
-      local currencyIcon = data.iconFileID
+      local currencyIcon = Currency.OverrideTexture[roll.currencyID] or data.iconFileID
       local str = "\124T" .. currencyIcon .. ":0\124t "
       if roll.money then
         str = str .. roll.money
@@ -1990,11 +1977,11 @@ hoverTooltip.ShowBonusTooltip = function (cell, arg, ...)
       indicatortip:SetCell(line,4,date("%b %d %H:%M",roll.time))
     end
   end
-  finishIndicator(parent)
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowAccountSummary = function (cell, arg, ...)
-  openIndicator(2, "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT","RIGHT")
   indicatortip:SetCell(indicatortip:AddHeader(),1,GOLDFONT..L["Account Summary"]..FONTEND,"LEFT",2)
 
   local tmoney = 0
@@ -2026,7 +2013,7 @@ hoverTooltip.ShowAccountSummary = function (cell, arg, ...)
   for _,ri in pairs(r) do table.insert(rmoney,ri) end
   table.sort(rmoney,function(a,b) return a.money > b.money end)
   for _,ri in ipairs(rmoney) do
-    if ri.money > 10000*10000 and ri.cnt > 1 then -- show multi-toon servers with over 10k wealth
+    if ri.money > 10000*10000 then -- show servers with over 10k wealth
       indicatortip:AddLine(ri.realm.." "..MONEY,SI:formatNumber(ri.money,true))
     end
   end
@@ -2041,7 +2028,6 @@ hoverTooltip.ShowAccountSummary = function (cell, arg, ...)
   end
   cnt = #tmp
   table.sort(tmp, function(i1,i2) return i1.last < i2.last end)
-  indicatortip:SetHeaderFont(tooltip:GetHeaderFont())
   indicatortip:SetCell(indicatortip:AddHeader(),1,GOLDFONT..cnt.." "..L["Recent Instances"]..": "..FONTEND,"LEFT",2)
   for _,ii in ipairs(tmp) do
     local tstr = REDFONT..SecondsToTime(ii.last+SI.histReapTime - time(),false,false,1)..FONTEND
@@ -2054,7 +2040,7 @@ hoverTooltip.ShowAccountSummary = function (cell, arg, ...)
 
   indicatortip:AddLine("")
   indicatortip:SetCell(indicatortip:AddLine(), 1, L["|cffffff00Click|r to open weekly rewards"], "LEFT", indicatortip:GetColumnCount())
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowWorldBossTooltip = function (cell, arg, ...)
@@ -2062,7 +2048,7 @@ hoverTooltip.ShowWorldBossTooltip = function (cell, arg, ...)
   local toon = arg[2]
   local saved = arg[3]
   if not worldbosses or not toon then return end
-  openIndicator(2, "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT","RIGHT")
   local line = indicatortip:AddHeader()
   local toonstr = (db.Tooltip.ShowServer and toon) or strsplit(' ', toon)
   local t = SI.db.Toons[toon]
@@ -2083,14 +2069,14 @@ hoverTooltip.ShowWorldBossTooltip = function (cell, arg, ...)
       end
     end
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowLFRTooltip = function (cell, arg, ...)
   local boxname, toon, tbl = unpack(arg)
   local t = SI.db.Toons[toon]
   if not boxname or not t or not tbl then return end
-  openIndicator(3, "LEFT", "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(3, "LEFT", "LEFT","RIGHT")
   local line = indicatortip:AddHeader()
   local toonstr = (db.Tooltip.ShowServer and toon) or strsplit(' ', toon)
   local reset = t.WeeklyResetTime or SI:GetNextWeeklyResetTime()
@@ -2123,7 +2109,7 @@ hoverTooltip.ShowLFRTooltip = function (cell, arg, ...)
       end
     end
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowIndicatorTooltip = function (cell, arg, ...)
@@ -2131,7 +2117,7 @@ hoverTooltip.ShowIndicatorTooltip = function (cell, arg, ...)
   local toon = arg[2]
   local diff = arg[3]
   if not instance or not toon or not diff then return end
-  openIndicator(3, "LEFT", "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(3, "LEFT", "LEFT","RIGHT")
   local thisinstance = SI.db.Instances[instance]
   local worldboss = thisinstance and thisinstance.WorldBoss
   local info = thisinstance[toon][diff]
@@ -2250,13 +2236,13 @@ hoverTooltip.ShowIndicatorTooltip = function (cell, arg, ...)
       end
     end
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowSpellIDTooltip = function (cell, arg, ...)
   local toon, spellid, timestr = unpack(arg)
   if not toon or not spellid or not timestr then return end
-  openIndicator(2, "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT","RIGHT")
   indicatortip:AddHeader(ClassColorise(SI.db.Toons[toon].Class, strsplit(' ', toon)), timestr)
   if spellid > 0 then
     local tip = SI.db.spelltip and SI.db.spelltip[spellid]
@@ -2270,7 +2256,7 @@ hoverTooltip.ShowSpellIDTooltip = function (cell, arg, ...)
     indicatortip:AddLine("")
     indicatortip:SetCell(indicatortip:GetLineCount(),1,queuestr, nil, "LEFT",2, nil, nil, nil, 250)
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowCurrencyTooltip = function (cell, arg, ...)
@@ -2278,7 +2264,7 @@ hoverTooltip.ShowCurrencyTooltip = function (cell, arg, ...)
   if not toon or not idx or not ci then return end
   local info = C_CurrencyInfo.GetBasicCurrencyInfo(idx)
   local tex = " \124T" .. info.icon .. ":0\124t"
-  openIndicator(2, "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT","RIGHT")
   indicatortip:AddHeader(ClassColorise(SI.db.Toons[toon].Class, strsplit(' ', toon)), CurrencyColor(ci.amount or 0,ci.totalMax)..tex)
 
   indicatortip:AddLine('')
@@ -2333,14 +2319,15 @@ hoverTooltip.ShowCurrencyTooltip = function (cell, arg, ...)
       indicatortip:AddLine(itemName .. ": " .. (ci.relatedItemCount or 0))
     end
   end
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowCurrencySummary = function (cell, arg, ...)
   local idx = arg
   if not idx then return end
   local data = C_CurrencyInfo.GetCurrencyInfo(idx)
-  local name, tex = data.name, data.iconFileID
+  local name = Currency.OverrideName[idx] or data.name
+  local tex = Currency.OverrideTexture[idx] or data.iconFileID
   tex = " \124T"..tex..":0\124t"
   local itemFlag, itemIcon
   if SI.specialCurrency[idx] and SI.specialCurrency[idx].relatedItem then
@@ -2348,7 +2335,7 @@ hoverTooltip.ShowCurrencySummary = function (cell, arg, ...)
     itemIcon = select(10, GetItemInfo(SI.specialCurrency[idx].relatedItem.id))
     itemIcon = itemIcon and (" \124T" .. itemIcon .. ":0\124t") or ""
   end
-  openIndicator(2, "LEFT","RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT","RIGHT")
   indicatortip:AddHeader(name, "")
   local total = 0
   local tmax
@@ -2394,105 +2381,13 @@ hoverTooltip.ShowCurrencySummary = function (cell, arg, ...)
     indicatortip:AddLine(t.str1, t.str2)
   end
 
-  finishIndicator()
-end
-
-hoverTooltip.ShowHorrificVisionTooltip = function (cell, arg, ...)
-  -- Should be in Module Progress
-  local toon, index = unpack(arg)
-  local t = SI.db.Toons[toon]
-  if not t or not t.Progress or not t.Progress[index] then return end
-  openIndicator(2, "LEFT", "RIGHT")
-  indicatortip:AddHeader(ClassColorise(t.Class, toon), SPLASH_BATTLEFORAZEROTH_8_3_0_FEATURE1_TITLE)
-
-  local P = SI:GetModule("Progress")
-  for i, descText in ipairs(P.TrackedQuest[index].rewardDesc) do
-    indicatortip:AddLine(descText[2], t.Progress[index][i] and
-      REDFONT .. ALREADY_LOOTED .. FONTEND or
-      GREENFONT .. AVAILABLE .. FONTEND
-    )
-  end
-  finishIndicator()
-end
-
-hoverTooltip.ShowNZothAssaultTooltip = function (cell, arg, ...)
-  -- Should be in Module Progress
-  local toon, index = unpack(arg)
-  local t = SI.db.Toons[toon]
-  if not t or not t.Progress or not t.Progress[index] then return end
-  if not t or not t.Quests then return end
-  openIndicator(2, "LEFT", "RIGHT")
-  indicatortip:AddHeader(ClassColorise(t.Class, toon), WORLD_MAP_THREATS)
-
-  local P = SI:GetModule("Progress")
-  for keyQuestID, data in pairs(P.TrackedQuest[index].assaultQuest) do
-    if t.Quests[keyQuestID] or t.Progress[index][keyQuestID] then
-      indicatortip:AddLine(SI:QuestInfo(keyQuestID),
-        t.Quests[keyQuestID] and (REDFONT .. CRITERIA_COMPLETED .. FONTEND) or (GREENFONT .. AVAILABLE .. FONTEND)
-      )
-      for _, questID in ipairs(data) do
-        indicatortip:AddLine(SI:QuestInfo(questID),
-          t.Quests[questID] and (REDFONT .. CRITERIA_COMPLETED .. FONTEND) or (
-            t.Progress[index][questID] and
-            (GREENFONT .. AVAILABLE .. FONTEND) or
-            (REDFONT .. ADDON_NOT_AVAILABLE .. FONTEND)
-          )
-        )
-      end
-    end
-  end
-
-  finishIndicator()
-end
-
-hoverTooltip.ShowTorghastTooltip = function (cell, arg, ...)
-  -- Should be in Module Progress
-  local toon, index = unpack(arg)
-  local t = SI.db.Toons[toon]
-  if not t or not t.Progress or not t.Progress[index] then return end
-  openIndicator(2, "LEFT", "RIGHT")
-  indicatortip:AddHeader(ClassColorise(t.Class, toon), L["Torghast"])
-
-  local P = SI:GetModule("Progress")
-  for i, data in ipairs(P.TrackedQuest[index].widgetID) do
-    if t.Progress[index]['Available' .. i] then
-      local nameInfo = C_UIWidgetManager.GetTextWithStateWidgetVisualizationInfo(data[1])
-      local nameText = nameInfo and strmatch(nameInfo.text, '|n|cffffffff(.+)|r')
-
-      indicatortip:AddLine(nameText or '', t.Progress[index]['Level' .. i])
-    end
-  end
-
-  finishIndicator()
-end
-
-hoverTooltip.ShowCovenantAssaultTooltip = function (cell, arg, ...)
-  -- Should be in Module Progress
-  local toon, index = unpack(arg)
-  local t = SI.db.Toons[toon]
-  if not t or not t.Progress or not t.Progress[index] then return end
-  if not t or not t.Quests then return end
-  openIndicator(2, "LEFT", "RIGHT")
-  indicatortip:AddHeader(ClassColorise(t.Class, toon), L["Covenant Assaults"])
-
-  local P = SI:GetModule("Progress")
-  for _, questID in ipairs(P.TrackedQuest[index].relatedQuest) do
-    indicatortip:AddLine(SI:QuestInfo(questID),
-      t.Quests[questID] and (REDFONT .. CRITERIA_COMPLETED .. FONTEND) or (
-        t.Progress[index][questID] and
-        (GREENFONT .. AVAILABLE .. FONTEND) or
-        (REDFONT .. ADDON_NOT_AVAILABLE .. FONTEND)
-      )
-    )
-  end
-
-  finishIndicator()
+  indicatortip:Show()
 end
 
 hoverTooltip.ShowKeyReportTarget = function (cell, arg, ...)
-  openIndicator(2, "LEFT", "RIGHT")
+  local indicatortip = Tooltip:AcquireIndicatorTip(2, "LEFT", "RIGHT")
   indicatortip:AddHeader(GOLDFONT..L["Keystone report target"]..FONTEND, SI.db.Tooltip.KeystoneReportTarget)
-  finishIndicator()
+  indicatortip:Show()
 end
 
 -- global addon code below
@@ -2505,6 +2400,7 @@ function SI:toonInit()
   ti.Order = ti.Order or 50
   ti.Quests = ti.Quests or {}
   ti.Skills = ti.Skills or {}
+  ti.Progress = ti.Progress or {}
   ti.DailyWorldQuest = nil -- REMOVED
   ti.Artifact = nil -- REMOVED
   ti.Cloak = nil -- REMOVED
@@ -2589,7 +2485,7 @@ function SI:OnInitialize()
     type = "launcher",
     icon = "Interface\\Addons\\SavedInstances\\Media\\Icon.tga",
     OnEnter = function(frame)
-      if not SI:IsDetached() and not db.Tooltip.DisableMouseover then
+      if not Tooltip:IsDetached() and not db.Tooltip.DisableMouseover then
         SI:ShowTooltip(frame)
       end
     end,
@@ -2600,14 +2496,15 @@ function SI:OnInitialize()
         ToggleFriendsFrame(4) -- open Blizzard Raid window
         RaidInfoFrame:Show()
       elseif button == "LeftButton" then
-        SI:ToggleDetached()
+        Tooltip:ToggleDetached()
       else
-        SI.config:ShowConfig()
+        Config:ShowConfig()
       end
     end
   })
   if SI.Libs.LDBI then
     SI.Libs.LDBI:Register("SavedInstances", SI.dataobject, db.MinimapIcon)
+    SI.Libs.LDBI:AddButtonToCompartment("SavedInstances")
     SI.Libs.LDBI:Refresh("SavedInstances")
   end
 end
@@ -2627,8 +2524,19 @@ function SI:OnEnable()
   self:RegisterEvent("MYTHIC_PLUS_NEW_WEEKLY_RECORD", "UpdateToonData")
   self:RegisterEvent("ZONE_CHANGED_NEW_AREA", RequestRatedInfo)
   self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
-    RequestRatedInfo()
-    C_Timer.After(1, RequestRaidInfo)
+    C_Timer.After(1, function()
+      RequestRatedInfo()
+      RequestRaidInfo()
+    end)
+
+    SI:UpdateToonData()
+  end)
+  -- Update rating on spec change because Solo Shuffle is unique to each spec
+  self:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function()
+    C_Timer.After(1, function()
+      RequestRatedInfo()
+      RequestRaidInfo()
+    end)
 
     SI:UpdateToonData()
   end)
@@ -2870,7 +2778,7 @@ function SI:histZoneKey()
   if insttype == nil or insttype == "none" or insttype == "arena" or insttype == "pvp" then -- pvp doesnt count
     return nil
   end
-  if (IsInLFGDungeon() or IsInScenarioGroup()) and diff ~= 19 then -- LFG instances don't count, but Holiday Event counts
+  if (IsInLFGDungeon() or IsInScenarioGroup()) and diff ~= 19 and diff ~= 17 then -- LFG instances don't count, but Holiday Events and LFR both count
     return nil
   end
   if C_Garrison.IsOnGarrisonMap() then -- Garrisons don't count
@@ -3023,7 +2931,7 @@ function SI:QuestRefresh(recoverdaily, nextreset, weeklyreset)
 
   for _, qinfo in pairs(SI:specialQuests()) do
     local qid = qinfo.quest
-    if IsQuestFlaggedCompleted(qid) then
+    if C_QuestLog.IsQuestFlaggedCompleted(qid) then
       local q = tiq[qid] or {}
       tiq[qid] = q
       q.Title = qinfo.name
@@ -3049,7 +2957,7 @@ function SI:QuestRefresh(recoverdaily, nextreset, weeklyreset)
     end
     if recoverdaily or (scope ~= "Daily") then
       for qid, mapid in pairs(list) do
-        if tonumber(qid) and IsQuestFlaggedCompleted(qid) and not questlist[qid] and -- recovering a lost quest
+        if tonumber(qid) and C_QuestLog.IsQuestFlaggedCompleted(qid) and not questlist[qid] and -- recovering a lost quest
           (list.expires == nil or list.expires > now) then -- don't repop darkmoon quests from last faire
           local title, link = SI:QuestInfo(qid)
           if title then
@@ -3154,7 +3062,7 @@ function SI:Refresh(recoverdaily)
   end
   for _,einfo in pairs(SI.WorldBosses) do
     if weeklyreset and (
-      (einfo.quest and IsQuestFlaggedCompleted(einfo.quest)) or
+      (einfo.quest and C_QuestLog.IsQuestFlaggedCompleted(einfo.quest)) or
       wbsave[einfo.savename or einfo.name]
       ) then
       local truename = einfo.name
@@ -3170,7 +3078,7 @@ function SI:Refresh(recoverdaily)
   end
 
   SI:QuestRefresh(recoverdaily, nextreset, weeklyreset)
-  SI:GetModule('Warfront'):UpdateQuest()
+  Warfront:UpdateQuest()
 
   local icnt, dcnt = 0,0
   for name, _ in pairs(temp) do
@@ -3190,18 +3098,17 @@ function SI:Refresh(recoverdaily)
   SI:UpdateToonData()
 end
 
-local function UpdateTooltip(self,elap)
-  if not tooltip or not tooltip:IsShown() then return end
-  if SI.firstupdate then
-    SI:SkinFrame(tooltip, "SavedInstancesTooltip")
-    SI.firstupdate = false
+local function UpdateTooltip(self, elapsed)
+  if not self.anchorframe then
+    self:SetScript('OnUpdate', nil)
+    return
   end
-  SI.updatetooltip_throttle = (SI.updatetooltip_throttle or 10) + elap
-  if SI.updatetooltip_throttle < 0.5 then return end
-  SI.updatetooltip_throttle = 0
-  if tooltip.anchorframe then
-    SI:ShowTooltip(tooltip.anchorframe)
-  end
+
+  self.elapsed = (self.elapsed or 10) + elapsed
+  if self.elapsed < 0.5 then return end
+  self.elapsed = 0
+
+  SI:ShowTooltip(self.anchorframe)
 end
 
 -- sorted traversal function for character table
@@ -3315,69 +3222,6 @@ do
 end
 SI.cpairs = cpairs
 
-function SI:IsDetached()
-  return SI.detachframe and SI.detachframe:IsShown()
-end
-function SI:HideDetached()
-  SI.detachframe:Hide()
-end
-function SI:ToggleDetached()
-  if SI:IsDetached() then
-    SI:HideDetached()
-  else
-    SI:ShowDetached()
-  end
-end
-
-function SI:ShowDetached()
-  if not SI.detachframe then
-    local f = CreateFrame("Frame", "SavedInstancesDetachHeader", UIParent, "BasicFrameTemplate, BackdropTemplate")
-    f:SetMovable(true)
-    f:SetFrameStrata("TOOLTIP")
-    f:SetFrameLevel(100) -- prevent weird interlacings with other tooltips
-    f:SetClampedToScreen(true)
-    f:EnableMouse(true)
-    f:SetUserPlaced(true)
-    f:SetAlpha(0.5)
-    if SI.db.Tooltip.posx and SI.db.Tooltip.posy then
-      f:SetPoint("TOPLEFT",SI.db.Tooltip.posx,-SI.db.Tooltip.posy)
-    else
-      f:SetPoint("CENTER")
-    end
-    f:SetScript("OnMouseDown", function() f:StartMoving() end)
-    f:SetScript("OnMouseUp", function()
-      f:StopMovingOrSizing()
-      SI.db.Tooltip.posx = f:GetLeft()
-      SI.db.Tooltip.posy = UIParent:GetTop() - (f:GetTop()*f:GetScale())
-    end)
-    f:SetScript("OnHide", function()
-      if tooltip then
-        QTip:Release(tooltip)
-        tooltip = nil
-      end
-    end)
-    f:SetScript("OnUpdate", function(self)
-      if not tooltip then f:Hide(); return end
-      local w,h = tooltip:GetSize()
-      self:SetSize(w*tooltip:GetScale(),(h+20)*tooltip:GetScale())
-    end)
-    f:SetScript("OnKeyDown", function(self,key)
-      if key == "ESCAPE" then
-        f:SetPropagateKeyboardInput(false)
-        f:Hide()
-      end
-    end)
-    f:EnableKeyboard(true)
-    SI:SkinFrame(f, f:GetName())
-    SI.detachframe = f
-  end
-  local f = SI.detachframe
-  f:Show()
-  f:SetPropagateKeyboardInput(true)
-  if tooltip then tooltip:Hide() end
-  SI:ShowTooltip(f)
-end
-
 -----------------------------------------------------------------------------------------------
 -- tooltip event handlers
 
@@ -3412,19 +3256,8 @@ local function OpenLFR(self, instanceid, button)
   end
 end
 
-local function OpenLFS(self, instanceid, button)
-  if ScenarioFinderFrame and ScenarioFinderFrame:IsVisible() and ScenarioQueueFrame.type ~= instanceid then
-  -- changing entries
-  else
-    PVEFrame_ToggleFrame("GroupFinderFrame", ScenarioFinderFrame)
-  end
-  if ScenarioFinderFrame and ScenarioFinderFrame:IsVisible() and ScenarioQueueFrame_SetType then
-    ScenarioQueueFrame_SetType(instanceid)
-  end
-end
-
 local function ReportKeys(self, index, button)
-  SI:GetModule("MythicPlus"):Keys(index)
+  MythicPlus:Keys(index)
 end
 
 local function OpenCurrency(self, _, button)
@@ -3440,12 +3273,7 @@ local function ChatLink(self, link, button)
   end
 end
 
-local function CloseTooltips()
-  GameTooltip:Hide()
-  if indicatortip then
-    indicatortip:Hide()
-  end
-end
+local CloseTooltips = Tooltip.CloseIndicatorTip
 
 local function DoNothing() end
 
@@ -3464,21 +3292,9 @@ local function addColumns(columns, toon, tooltip)
 end
 SI.scaleCache = {}
 
-function SI:HeaderFont()
-  if not SI.headerfont then
-    local temp = QTip:Acquire("SavedInstancesHeaderTooltip", 1, "LEFT")
-    SI.headerfont = CreateFont("SavedInstancedTooltipHeaderFont")
-    local hFont = temp:GetHeaderFont()
-    local hFontPath, hFontSize,_ hFontPath, hFontSize, _ = hFont:GetFont()
-    SI.headerfont:SetFont(hFontPath, hFontSize, "OUTLINE")
-    QTip:Release(temp)
-  end
-  return SI.headerfont
-end
-
 function SI:ShowTooltip(anchorframe)
   local showall = ShowAll()
-  if tooltip and tooltip:IsShown() and
+  if Tooltip:IsTooltipShown() and
     SI.showall == showall and
     SI.scale == (SI.scaleCache[showall] or SI.db.Tooltip.Scale)
   then
@@ -3487,16 +3303,13 @@ function SI:ShowTooltip(anchorframe)
   local starttime = debugprofilestop()
   SI.showall = showall
   local showexpired = showall or SI.db.Tooltip.ShowExpired
-  if tooltip then QTip:Release(tooltip) end
-  tooltip = QTip:Acquire("SavedInstancesTooltip", 1, "LEFT")
+  local tooltip = Tooltip:AcquireTooltip("SavedInstancesTooltip", 1, "LEFT")
   tooltip:SetCellMarginH(0)
   tooltip.anchorframe = anchorframe
   tooltip:SetScript("OnUpdate", UpdateTooltip)
-  SI.firstupdate = true
   tooltip:Clear()
   SI.scale = SI.scaleCache[showall] or SI.db.Tooltip.Scale
   tooltip:SetScale(SI.scale)
-  tooltip:SetHeaderFont(SI:HeaderFont())
   SI:HistoryUpdate()
   local headText
   if SI.histLiveCount and SI.histLiveCount > 0 then
@@ -3780,11 +3593,7 @@ function SI:ShowTooltip(anchorframe)
           end
           local tstr = SecondsToTime(d.Expires - time(), false, false, 1)
           tooltip:SetCell(row, columns[toon..1], ClassColorise(t.Class,tstr), "CENTER",maxcol)
-          if info.Scenario then
-            tooltip:SetLineScript(row, "OnMouseDown", OpenLFS, info.LFDID)
-          else
-            tooltip:SetLineScript(row, "OnMouseDown", OpenLFD, info.LFDID)
-          end
+          tooltip:SetLineScript(row, "OnMouseDown", OpenLFD, info.LFDID)
         end
       end
     end
@@ -3904,7 +3713,7 @@ function SI:ShowTooltip(anchorframe)
     end
   end
 
-  SI:GetModule("Progress"):ShowTooltip(tooltip, columns, showall, function()
+  Progress:ShowTooltip(tooltip, columns, showall, function()
     if SI.db.Tooltip.CategorySpaces then
       addsep()
     end
@@ -3913,7 +3722,7 @@ function SI:ShowTooltip(anchorframe)
     end
   end)
 
-  SI:GetModule("Warfront"):ShowTooltip(tooltip, columns, showall, function()
+  Warfront:ShowTooltip(tooltip, columns, showall, function()
     if SI.db.Tooltip.CategorySpaces then
       addsep()
     end
@@ -4044,9 +3853,9 @@ function SI:ShowTooltip(anchorframe)
         end
         if t.MythicKeyBest.rewardWaiting then
           if keydesc == "" then
-            keydesc = "\124T" .. READY_CHECK_WAITING_TEXTURE .. ":0|t"
+            keydesc = SI.questTurnin
           else
-            keydesc = keydesc .. "(\124T" .. READY_CHECK_WAITING_TEXTURE .. ":0|t)"
+            keydesc = keydesc .. "(" .. SI.questTurnin .. ")"
           end
         end
         if keydesc ~= "" then
@@ -4102,9 +3911,9 @@ function SI:ShowTooltip(anchorframe)
                   local col = columns[toon .. day]
                   local text = ""
                   if tbl.isComplete == true then
-                    text = "\124T"..READY_CHECK_READY_TEXTURE..":0|t"
+                    text = SI.questCheckMark
                   elseif tbl.isFinish == true then
-                    text = "\124T"..READY_CHECK_WAITING_TEXTURE..":0|t"
+                    text = SI.questTurnin
                   else
                     text = tbl.questDone
                     if (
@@ -4161,9 +3970,9 @@ function SI:ShowTooltip(anchorframe)
                     local col = columns[toon .. 1]
                     local text = ""
                     if tbl.isComplete == true then
-                      text = "\124T"..READY_CHECK_READY_TEXTURE..":0|t"
+                      text = SI.questCheckMark
                     elseif tbl.isFinish == true then
-                      text = "\124T"..READY_CHECK_WAITING_TEXTURE..":0|t"
+                      text = SI.questTurnin
                     else
                       text = tbl.questDone
                       if (
@@ -4215,11 +4024,11 @@ function SI:ShowTooltip(anchorframe)
               local col = columns[toon .. day]
               local text = ""
               if t.Calling[day].isCompleted then
-                text = "\124T" .. READY_CHECK_READY_TEXTURE .. ":0|t"
+                text = SI.questCheckMark
               elseif not t.Calling[day].isOnQuest then
-                text = "\124cFFFFFF00!\124r"
+                text = SI.questNormal
               elseif t.Calling[day].isFinished then
-                text = "\124T" .. READY_CHECK_WAITING_TEXTURE .. ":0|t"
+                text = SI.questTurnin
               else
                 if t.Calling[day].objectiveType == 'progressbar' then
                   text = floor(t.Calling[day].questDone / t.Calling[day].questNeed * 100) .. "%"
@@ -4263,11 +4072,11 @@ function SI:ShowTooltip(anchorframe)
                 local col = columns[toon .. 1]
                 local text = ""
                 if t.Calling[day].isCompleted then
-                  text = "\124T" .. READY_CHECK_READY_TEXTURE .. ":0|t"
+                  text = SI.questCheckMark
                 elseif not t.Calling[day].isOnQuest then
-                  text = "\124cFFFFFF00!\124r"
+                  text = SI.questNormal
                 elseif t.Calling[day].isFinished then
-                  text = "\124T" .. READY_CHECK_WAITING_TEXTURE .. ":0|t"
+                  text = SI.questTurnin
                 else
                   if t.Calling[day].objectiveType == 'progressbar' then
                     text = floor(t.Calling[day].questDone / t.Calling[day].questNeed * 100) .. "%"
@@ -4365,7 +4174,8 @@ function SI:ShowTooltip(anchorframe)
           end
           if not show and (gotThisWeek or gotSome) and columns[toon .. 1] then
             local data = C_CurrencyInfo.GetCurrencyInfo(idx)
-            local name, tex = data.name, data.iconFileID
+            local name = Currency.OverrideName[idx] or data.name
+            local tex = Currency.OverrideTexture[idx] or data.iconFileID
             show = format(" \124T%s:0\124t%s", tex, name)
           end
         end
@@ -4480,7 +4290,7 @@ function SI:ShowTooltip(anchorframe)
   if SI.db.Tooltip.ShowHints then
     tooltip:AddSeparator(8,0,0,0,0)
     local hintLine, hintCol
-    if not SI:IsDetached() then
+    if not Tooltip:IsDetached() then
       hintLine, hintCol = tooltip:AddLine()
       tooltip:SetCell(hintLine, hintCol, L["|cffffff00Left-click|r to detach tooltip"], "LEFT", tooltip:GetColumnCount())
       hintLine, hintCol = tooltip:AddLine()
@@ -4524,20 +4334,17 @@ function SI:ShowTooltip(anchorframe)
     SI:ScheduleTimer("ShowTooltip", 0, anchorframe)
   else -- render it
     SI:SkinFrame(tooltip,"SavedInstancesTooltip")
-    if SI:IsDetached() then
+    if Tooltip:IsDetached() then
+      local detachFrame = Tooltip:GetDetachedFrame()
       tooltip:Show()
       QTip.layoutCleaner:CleanupLayouts()
       tooltip:ClearAllPoints()
-      tooltip:SetPoint("BOTTOMLEFT",SI.detachframe)
-      tooltip:SetFrameLevel(SI.detachframe:GetFrameLevel()+1)
+      tooltip:SetPoint("BOTTOMLEFT", detachFrame)
+      tooltip:SetFrameLevel(detachFrame:GetFrameLevel() + 1)
     else
       tooltip:SmartAnchorTo(anchorframe)
       tooltip:SetAutoHideDelay(0.1, anchorframe)
       tooltip:Show()
-    end
-    tooltip.OnRelease = function() -- extra-safety: update our variable on auto-release
-      tooltip:ClearAllPoints()
-      tooltip = nil
     end
     if db.Tooltip.FitToScreen then
       -- scale check

@@ -1,4 +1,4 @@
-local SI, L = unpack(select(2, ...))
+local SI, L = unpack((select(2, ...)))
 local Module = SI:NewModule('LFR')
 
 local locLevel = UnitLevel("player")
@@ -120,6 +120,15 @@ local LFRInstances = {
   [2291] = { total=3, base=5,  parent=2290, minLvl=60, remap={ 1, 2, 3 } }, -- Sepulcher of the First Ones: Cornerstone of Creation
   [2293] = { total=3, base=8,  parent=2290, minLvl=60, remap={ 1, 2, 3 } }, -- Sepulcher of the First Ones: Domination's Grasp
   [2294] = { total=1, base=11, parent=2290, minLvl=60, remap={ 1 } }, -- Sepulcher of the First Ones: The Grand Design
+
+  [2370] = { total=3, base=1,  parent=2390, minLvl=70, remap={ 1, 2, 3 } }, -- Vault of the Incarnates: The Primal Bulwark
+  [2371] = { total=3, base=4,  parent=2390, minLvl=70, remap={ 1, 2, 3 } }, -- Vault of the Incarnates: Caverns of Infusion
+  [2372] = { total=2, base=7,  parent=2390, minLvl=70, remap={ 1, 2 } }, -- Vault of the Incarnates: Fury of the Storm
+
+  [2399] = { total=3, base=1,  parent=2405, minLvl=70, remap={ 1, 2, 3 } }, -- Aberrus, the Shadowed Crucible: Discarded Works
+  [2400] = { total=3, base=1,  parent=2405, minLvl=70, remap={ 1, 2, 3 } }, -- Aberrus, the Shadowed Crucible: Fury of Giants
+  [2401] = { total=2, base=1,  parent=2405, minLvl=70, remap={ 1, 2 } }, -- Aberrus, the Shadowed Crucible: Neltharion's Shadow
+  [2402] = { total=1, base=1,  parent=2405, minLvl=70, remap={ 1 } }, -- Aberrus, the Shadowed Crucible: Edge of the Void
 }
 
 local tbl = {}
@@ -149,6 +158,10 @@ for id, info in pairs(LFRInstances) do
       info.remap = { 1, 3, 5, 6 }
     elseif id == 2291 then -- Sepulcher of the First Ones: Cornerstone of Creation
       info.remap = { 2, 4, 7 }
+    elseif id == 2399 then -- Aberrus, the Shadowed Crucible: Discarded Works
+      info.remap = { 1, 3, 4 }
+    elseif id == 2400 then -- Aberrus, the Shadowed Crucible: Fury of Giants
+      info.remap = { 2, 5, 6}
     end
   end
 
